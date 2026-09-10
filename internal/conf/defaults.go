@@ -234,6 +234,9 @@ func setDefaultConfig() {
 	viper.SetDefault("realtime.birdweather.retrysettings.initialdelay", 60)
 	viper.SetDefault("realtime.birdweather.retrysettings.maxdelay", 3600)
 	viper.SetDefault("realtime.birdweather.retrysettings.backoffmultiplier", 2.0)
+	viper.SetDefault("realtime.birdweather.download.enabled", false)
+	viper.SetDefault("realtime.birdweather.download.pollintervalminutes", 15)
+	viper.SetDefault("realtime.birdweather.download.backfilldays", 0)
 
 	// eBird configuration
 	viper.SetDefault("realtime.ebird.enabled", false)

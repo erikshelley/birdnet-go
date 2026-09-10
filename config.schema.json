@@ -526,6 +526,25 @@
       "type": "object",
       "description": "BirdNETV3Config holds configuration for the BirdNET v3.0 acoustic classifier."
     },
+    "BirdweatherDownloadSettings": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "true to enable periodic detection downloads"
+        },
+        "pollintervalminutes": {
+          "type": "integer",
+          "description": "minutes between download polls"
+        },
+        "backfilldays": {
+          "type": "integer",
+          "description": "days of history to backfill on first enable (0 disables backfill)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "description": "BirdweatherDownloadSettings contains settings for downloading the user's own station detections from BirdWeather so they appear alongside local detections."
+    },
     "BirdweatherSettings": {
       "properties": {
         "enabled": {
@@ -542,7 +561,7 @@
         },
         "threshold": {
           "type": "number",
-          "description": "threshold for prediction confidence for uploads"
+          "description": "threshold for prediction confidence for uploads and downloads"
         },
         "locationaccuracy": {
           "type": "number",
@@ -551,6 +570,10 @@
         "retrysettings": {
           "$ref": "#/$defs/RetrySettings",
           "description": "settings for retry mechanism"
+        },
+        "download": {
+          "$ref": "#/$defs/BirdweatherDownloadSettings",
+          "description": "settings for downloading detections from the same station"
         }
       },
       "additionalProperties": false,

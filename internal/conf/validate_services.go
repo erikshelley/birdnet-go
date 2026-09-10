@@ -31,6 +31,16 @@ const (
 	webhookAuthCustom = "custom"
 )
 
+// BirdWeather detection download bounds. The interval floor keeps polling a
+// good citizen of BirdWeather's API; the backfill cap bounds how much history
+// a single first-enable sync can pull.
+const (
+	birdweatherDownloadMinPollIntervalMinutes = 5
+	birdweatherDownloadMaxPollIntervalMinutes = 1440 // 24 hours
+	birdweatherDownloadMinBackfillDays        = 0    // 0 disables backfill
+	birdweatherDownloadMaxBackfillDays        = 90
+)
+
 // ValidateBirdNETSettings performs BirdNET validation without side effects.
 // Returns normalized settings and any errors/warnings.
 // This pure function enables testing without log output or settings mutation.
@@ -141,6 +151,27 @@ func ValidateBirdweatherSettings(settings *BirdweatherSettings) ValidationResult
 			result.Valid = false
 			result.Errors = append(result.Errors, "birdweather location accuracy must be non-negative")
 		}
+	}
+
+	if settings.Download.Enabled {
+		// Downloads reuse the same station ID as uploads (see BirdweatherDownloadSettings),
+		// so it must be present and well-formed regardless of whether uploads are enabled.
+		switch {
+		case settings.ID == "":
+			result.Valid = false
+			result.Errors = append(result.Errors, "Birdweather ID is required when detection download is enabled")
+		case !birdweatherIDPattern.MatchString(settings.ID):
+			result.Valid = false
+			result.Errors = append(result.Errors, "Invalid Birdweather ID format: must be 24 alphanumeric characters")
+		}
+
+		checkRange(&result, settings.Download.PollIntervalMinutes,
+			birdweatherDownloadMinPollIntervalMinutes, birdweatherDownloadMaxPollIntervalMinutes,
+			"birdweather download poll interval must be between 5 and 1440 minutes")
+
+		checkRange(&result, settings.Download.BackfillDays,
+			birdweatherDownloadMinBackfillDays, birdweatherDownloadMaxBackfillDays,
+			"birdweather download backfill days must be between 0 and 90")
 	}
 
 	result.Normalized = &normalized
