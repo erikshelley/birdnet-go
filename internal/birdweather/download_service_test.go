@@ -232,3 +232,15 @@ func TestDownloadService_SyncWindowStart_NoBackfillStartsNow(t *testing.T) {
 	require.NoError(t, err)
 	require.WithinDuration(t, time.Now().UTC(), start, time.Minute)
 }
+
+func TestDownloadServiceRegistry(t *testing.T) {
+	// Not t.Parallel(): exercises the package-level registry global.
+	require.False(t, DownloadServiceRegistered())
+
+	svc := &DownloadService{}
+	RegisterDownloadService(svc)
+	require.True(t, DownloadServiceRegistered())
+
+	UnregisterDownloadService()
+	require.False(t, DownloadServiceRegistered())
+}

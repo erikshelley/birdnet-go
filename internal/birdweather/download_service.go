@@ -18,6 +18,35 @@ import (
 	"github.com/tphakala/birdnet-go/internal/logger"
 )
 
+var (
+	globalDownloadServiceMu sync.RWMutex
+	globalDownloadService   *DownloadService
+)
+
+// RegisterDownloadService stores the download service instance for
+// package-level access (e.g. health/status introspection). Called during
+// audio pipeline startup.
+func RegisterDownloadService(s *DownloadService) {
+	globalDownloadServiceMu.Lock()
+	globalDownloadService = s
+	globalDownloadServiceMu.Unlock()
+}
+
+// UnregisterDownloadService clears the stored download service instance.
+func UnregisterDownloadService() {
+	globalDownloadServiceMu.Lock()
+	globalDownloadService = nil
+	globalDownloadServiceMu.Unlock()
+}
+
+// DownloadServiceRegistered reports whether a download service is currently
+// registered, i.e. detection downloads are enabled and running.
+func DownloadServiceRegistered() bool {
+	globalDownloadServiceMu.RLock()
+	defer globalDownloadServiceMu.RUnlock()
+	return globalDownloadService != nil
+}
+
 const (
 	// downloadDefaultStartupDelay delays the first poll to reduce startup DB
 	// contention with other services, mirroring weather.DefaultStartupDelay.
@@ -139,8 +168,11 @@ func (s *DownloadService) StartPolling(stopChan <-chan struct{}) {
 
 	// Poll interval is read once at startup, matching weather.Service's
 	// StartPolling: the ticker cadence is not hot-reloadable without
-	// restarting the service (see the reconfigure_birdweather control action
-	// for how the wider integration picks up settings changes).
+	// restarting the whole audio pipeline service. Unlike the upload client
+	// (recreated by the reconfigure_birdweather control action), the download
+	// poller has no such wiring yet, so toggling Download.Enabled or changing
+	// PollIntervalMinutes/BackfillDays via the UI requires an app restart to
+	// take effect.
 	settings := conf.CurrentOrFallback(s.settings)
 	interval := time.Duration(settings.Realtime.Birdweather.Download.PollIntervalMinutes) * time.Minute
 	if interval <= 0 {

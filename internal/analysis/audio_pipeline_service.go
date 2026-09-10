@@ -20,6 +20,7 @@ import (
 	"github.com/tphakala/birdnet-go/internal/audiocore/ffmpeg"
 	"github.com/tphakala/birdnet-go/internal/audiocore/schedule"
 	"github.com/tphakala/birdnet-go/internal/audiocore/soundlevel"
+	"github.com/tphakala/birdnet-go/internal/birdweather"
 	"github.com/tphakala/birdnet-go/internal/classifier"
 	"github.com/tphakala/birdnet-go/internal/conf"
 	"github.com/tphakala/birdnet-go/internal/datastore"
@@ -408,6 +409,12 @@ func (p *AudioPipelineService) Start(_ context.Context) error {
 	if settings.Realtime.Weather.Provider != policyNone {
 		p.startWeatherPolling(metrics)
 	}
+
+	// Start BirdWeather detection download polling. Like weather, this is
+	// started once here; toggling Download.Enabled or its interval/backfill
+	// settings via the UI requires an app restart to take effect (no
+	// reconfigure_birdweather-style hot-reload wiring exists for this yet).
+	p.startBirdWeatherDownloadPolling()
 
 	// Start control monitor for hot reloads.
 	// The reconfigure callback diffs current vs desired stream configs and only
@@ -2096,6 +2103,33 @@ func (p *AudioPipelineService) startWeatherPolling(metrics *observability.Metric
 	p.wg.Go(func() {
 		weatherService.StartPolling(p.done)
 		weather.UnregisterService()
+	})
+}
+
+// startBirdWeatherDownloadPolling initializes and starts the BirdWeather
+// detection download polling routine, if enabled in settings. Downloaded
+// detections are saved through the same datastore.DetectionRepository path
+// local detections use, tagged with source "birdweather".
+func (p *AudioPipelineService) startBirdWeatherDownloadPolling() {
+	if !p.settings.Realtime.Birdweather.Download.Enabled {
+		return
+	}
+
+	dataStore := p.dbService.DataStore()
+	repo := datastore.NewDetectionRepository(dataStore, nil)
+	downloadService, err := birdweather.NewDownloadService(p.settings, dataStore, repo)
+	if err != nil {
+		GetLogger().Error("failed to initialize birdweather download service",
+			logger.Error(err),
+			logger.String("operation", "initialize_birdweather_download_service"))
+		return
+	}
+
+	birdweather.RegisterDownloadService(downloadService)
+
+	p.wg.Go(func() {
+		downloadService.StartPolling(p.done)
+		birdweather.UnregisterDownloadService()
 	})
 }
 
