@@ -139,16 +139,25 @@ type stationVerifyResponse struct {
 	Station *StationInfo `json:"station"`
 }
 
+// stationDetectionEdge is a single edge in a paginated detections connection.
+type stationDetectionEdge struct {
+	Node StationDetection `json:"node"`
+}
+
+// stationDetectionsConnection is the paginated "detections" field of a station.
+type stationDetectionsConnection struct {
+	Edges    []stationDetectionEdge `json:"edges"`
+	PageInfo PageInfo               `json:"pageInfo"`
+}
+
+// stationDetectionsStation is the "station" field of a stationDetectionsQuery response.
+type stationDetectionsStation struct {
+	Detections stationDetectionsConnection `json:"detections"`
+}
+
 // stationDetectionsResponse decodes the "data" field of a stationDetectionsQuery response.
 type stationDetectionsResponse struct {
-	Station *struct {
-		Detections struct {
-			Edges []struct {
-				Node StationDetection `json:"node"`
-			} `json:"edges"`
-			PageInfo PageInfo `json:"pageInfo"`
-		} `json:"detections"`
-	} `json:"station"`
+	Station *stationDetectionsStation `json:"station"`
 }
 
 // GraphQLClient is a minimal read-only client for BirdWeather's public GraphQL

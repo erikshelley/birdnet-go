@@ -10,7 +10,10 @@ const (
 	SourceTypeALSA       SourceType = "alsa"
 	SourceTypePulseAudio SourceType = "pulseaudio"
 	SourceTypeFile       SourceType = "file"
-	SourceTypeUnknown    SourceType = "unknown"
+	// SourceTypeBirdWeather identifies detections imported from the user's own
+	// BirdWeather station rather than captured from a local audio device.
+	SourceTypeBirdWeather SourceType = "birdweather"
+	SourceTypeUnknown     SourceType = "unknown"
 )
 
 // AudioSource represents a normalized audio input source.
