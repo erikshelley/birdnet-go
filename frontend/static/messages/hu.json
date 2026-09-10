@@ -3177,6 +3177,19 @@
           "label": "Feltöltési küszöbérték",
           "helpText": "Minimális megbízhatósági küszöbérték a BirdWeather-re történő feltöltésekhez."
         },
+        "download": {
+          "title": "Download Detections",
+          "description": "Periodically download detections from your own BirdWeather station so they appear alongside local detections in the dashboard, explore, and patterns pages.",
+          "enable": "Enable Detection Downloads",
+          "pollInterval": {
+            "label": "Poll Interval (minutes)",
+            "helpText": "How often to check BirdWeather for new detections from your station."
+          },
+          "backfillDays": {
+            "label": "Backfill Days",
+            "helpText": "How many days of history to download the first time this is enabled. Set to 0 to only sync new detections going forward."
+          }
+        },
         "test": {
           "button": "BirdWeather kapcsolat tesztelése",
           "loading": "Tesztelés...",

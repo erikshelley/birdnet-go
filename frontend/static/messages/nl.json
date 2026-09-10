@@ -3177,6 +3177,19 @@
           "label": "Upload Drempelwaarde",
           "helpText": "Minimum betrouwbaarheids drempelwaarde voor het uploaden van voorspellingen naar BirdWeather."
         },
+        "download": {
+          "title": "Download Detections",
+          "description": "Periodically download detections from your own BirdWeather station so they appear alongside local detections in the dashboard, explore, and patterns pages.",
+          "enable": "Enable Detection Downloads",
+          "pollInterval": {
+            "label": "Poll Interval (minutes)",
+            "helpText": "How often to check BirdWeather for new detections from your station."
+          },
+          "backfillDays": {
+            "label": "Backfill Days",
+            "helpText": "How many days of history to download the first time this is enabled. Set to 0 to only sync new detections going forward."
+          }
+        },
         "test": {
           "button": "Test BirdWeather Verbinding",
           "loading": "Testen...",

@@ -24,23 +24,24 @@
   @component
 -->
 <script lang="ts">
+  import CertificateField from '$lib/desktop/components/forms/CertificateField.svelte';
   import Checkbox from '$lib/desktop/components/forms/Checkbox.svelte';
   import NumberField from '$lib/desktop/components/forms/NumberField.svelte';
   import PasswordField from '$lib/desktop/components/forms/PasswordField.svelte';
+  import SelectDropdown from '$lib/desktop/components/forms/SelectDropdown.svelte';
   import TextInput from '$lib/desktop/components/forms/TextInput.svelte';
-  import ListenAddressSelector from '$lib/desktop/features/settings/components/ListenAddressSelector.svelte';
+  import CertificateInfoCard from '$lib/desktop/components/ui/CertificateInfoCard.svelte';
+  import ErrorAlert from '$lib/desktop/components/ui/ErrorAlert.svelte';
   import MultiStageOperation from '$lib/desktop/components/ui/MultiStageOperation.svelte';
   import type { Stage } from '$lib/desktop/components/ui/MultiStageOperation.types';
   import TestSuccessNote from '$lib/desktop/components/ui/TestSuccessNote.svelte';
+  import ListenAddressSelector from '$lib/desktop/features/settings/components/ListenAddressSelector.svelte';
   import SettingsButton from '$lib/desktop/features/settings/components/SettingsButton.svelte';
   import SettingsNote from '$lib/desktop/features/settings/components/SettingsNote.svelte';
-  import ErrorAlert from '$lib/desktop/components/ui/ErrorAlert.svelte';
   import SettingsSection from '$lib/desktop/features/settings/components/SettingsSection.svelte';
-  import SettingsTabs from '$lib/desktop/features/settings/components/SettingsTabs.svelte';
   import type { TabDefinition } from '$lib/desktop/features/settings/components/SettingsTabs.svelte';
+  import SettingsTabs from '$lib/desktop/features/settings/components/SettingsTabs.svelte';
   import { t } from '$lib/i18n';
-  import SelectDropdown from '$lib/desktop/components/forms/SelectDropdown.svelte';
-  import { Bird, Radio, Activity, Binoculars } from '@lucide/svelte';
   import {
     integrationSettings,
     realtimeSettings,
@@ -50,17 +51,14 @@
     type MQTTSettings,
     type SettingsFormData,
   } from '$lib/stores/settings';
-  import { Info, Send } from '@lucide/svelte';
   import { toastActions } from '$lib/stores/toast';
+  import { getCsrfToken } from '$lib/utils/api';
   import { loggers } from '$lib/utils/logger';
   import { safeArrayAccess } from '$lib/utils/security';
-  import { hasSettingsChanged } from '$lib/utils/settingsChanges';
-  import { getCsrfToken } from '$lib/utils/api';
-  import { buildAppUrl } from '$lib/utils/urlHelpers';
-  import CertificateField from '$lib/desktop/components/forms/CertificateField.svelte';
-  import CertificateInfoCard from '$lib/desktop/components/ui/CertificateInfoCard.svelte';
   import { settingsAPI, type MQTTTLSCertificateInfo } from '$lib/utils/settingsApi';
-  import { Trash2, Upload } from '@lucide/svelte';
+  import { hasSettingsChanged } from '$lib/utils/settingsChanges';
+  import { buildAppUrl } from '$lib/utils/urlHelpers';
+  import { Activity, Binoculars, Bird, Info, Radio, Send, Trash2, Upload } from '@lucide/svelte';
 
   const logger = loggers.settings;
 
@@ -94,6 +92,7 @@
         locationAccuracy: 1000,
         threshold: 0.7,
         debug: false,
+        download: { enabled: false, pollIntervalMinutes: 15, backfillDays: 0 },
       },
       mqtt: {
         enabled: false,
@@ -337,6 +336,33 @@
     });
   }
 
+  function updateBirdWeatherDownloadEnabled(enabled: boolean) {
+    settingsActions.updateSection('realtime', {
+      birdweather: {
+        ...settings.birdweather!,
+        download: { ...settings.birdweather!.download, enabled },
+      },
+    });
+  }
+
+  function updateBirdWeatherDownloadPollInterval(pollIntervalMinutes: number) {
+    settingsActions.updateSection('realtime', {
+      birdweather: {
+        ...settings.birdweather!,
+        download: { ...settings.birdweather!.download, pollIntervalMinutes },
+      },
+    });
+  }
+
+  function updateBirdWeatherDownloadBackfillDays(backfillDays: number) {
+    settingsActions.updateSection('realtime', {
+      birdweather: {
+        ...settings.birdweather!,
+        download: { ...settings.birdweather!.download, backfillDays },
+      },
+    });
+  }
+
   // MQTT update handlers
   function updateMQTTEnabled(enabled: boolean) {
     settingsActions.updateSection('realtime', {
@@ -543,6 +569,11 @@
         threshold: currentBirdweather.threshold || 0.7,
         locationAccuracy: currentBirdweather.locationAccuracy || 1000,
         debug: currentBirdweather.debug || false,
+        download: {
+          enabled: currentBirdweather.download?.enabled || false,
+          pollIntervalMinutes: currentBirdweather.download?.pollIntervalMinutes || 15,
+          backfillDays: currentBirdweather.download?.backfillDays || 0,
+        },
       };
 
       // Make request to the real API with CSRF token
@@ -1188,6 +1219,66 @@
                 helpText={t('settings.integration.birdweather.threshold.helpText')}
                 disabled={!settings.birdweather?.enabled || store.isLoading || store.isSaving}
               />
+            </div>
+
+            <!-- Detection Download Settings -->
+            <div class="mt-6 pt-6 border-t border-[var(--color-base-300)]">
+              <h3 class="text-sm font-semibold mb-3">
+                {t('settings.integration.birdweather.download.title')}
+              </h3>
+              <p class="text-sm text-[var(--color-base-content)] opacity-70 mb-4">
+                {t('settings.integration.birdweather.download.description')}
+              </p>
+
+              <Checkbox
+                checked={settings.birdweather!.download.enabled}
+                label={t('settings.integration.birdweather.download.enable')}
+                disabled={!settings.birdweather?.enabled || store.isLoading || store.isSaving}
+                onchange={updateBirdWeatherDownloadEnabled}
+              />
+
+              <fieldset
+                disabled={!settings.birdweather?.download?.enabled ||
+                  !settings.birdweather?.enabled ||
+                  store.isLoading ||
+                  store.isSaving}
+                class="contents"
+              >
+                <div
+                  class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4 transition-opacity duration-200"
+                  class:opacity-50={!settings.birdweather?.download?.enabled}
+                >
+                  <NumberField
+                    label={t('settings.integration.birdweather.download.pollInterval.label')}
+                    value={settings.birdweather!.download.pollIntervalMinutes}
+                    onUpdate={updateBirdWeatherDownloadPollInterval}
+                    min={5}
+                    max={1440}
+                    step={1}
+                    placeholder="15"
+                    helpText={t('settings.integration.birdweather.download.pollInterval.helpText')}
+                    disabled={!settings.birdweather?.download?.enabled ||
+                      !settings.birdweather?.enabled ||
+                      store.isLoading ||
+                      store.isSaving}
+                  />
+
+                  <NumberField
+                    label={t('settings.integration.birdweather.download.backfillDays.label')}
+                    value={settings.birdweather!.download.backfillDays}
+                    onUpdate={updateBirdWeatherDownloadBackfillDays}
+                    min={0}
+                    max={90}
+                    step={1}
+                    placeholder="0"
+                    helpText={t('settings.integration.birdweather.download.backfillDays.helpText')}
+                    disabled={!settings.birdweather?.download?.enabled ||
+                      !settings.birdweather?.enabled ||
+                      store.isLoading ||
+                      store.isSaving}
+                  />
+                </div>
+              </fieldset>
             </div>
 
             <!-- Test Connection -->

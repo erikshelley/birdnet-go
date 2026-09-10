@@ -413,6 +413,13 @@ export interface BirdWeatherSettings {
   locationAccuracy: number;
   threshold: number;
   debug: boolean;
+  download: BirdWeatherDownloadSettings;
+}
+
+export interface BirdWeatherDownloadSettings {
+  enabled: boolean;
+  pollIntervalMinutes: number;
+  backfillDays: number;
 }
 
 export interface HomeAssistantSettings {
@@ -1038,6 +1045,7 @@ function createEmptySettings(): SettingsFormData {
         locationAccuracy: 1000,
         threshold: 0.7,
         debug: false,
+        download: { enabled: false, pollIntervalMinutes: 15, backfillDays: 0 },
       },
       mqtt: {
         enabled: false,
