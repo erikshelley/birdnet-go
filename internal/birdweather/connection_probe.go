@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tphakala/birdnet-go/internal/conf"
 	"github.com/tphakala/birdnet-go/internal/errors"
 	"github.com/tphakala/birdnet-go/internal/httpclient"
 	"github.com/tphakala/birdnet-go/internal/logger"
@@ -331,6 +332,11 @@ const (
 	Authentication
 	SoundscapeUpload
 	DetectionPost
+	// StationReadAccess verifies the configured station ID also resolves via
+	// BirdWeather's GraphQL read API, used to download detections. Only run
+	// when detection download is enabled, since it exercises a different API
+	// surface than the upload stages above.
+	StationReadAccess
 )
 
 // String returns the string representation of a test stage
@@ -344,6 +350,8 @@ func (s TestStage) String() string {
 		return "Soundscape Upload"
 	case DetectionPost:
 		return "Detection Post"
+	case StationReadAccess:
+		return "Station Read Access"
 	default:
 		return "Unknown Stage"
 	}
@@ -358,6 +366,10 @@ const (
 	authTimeout   = 15 * time.Second // Increased to handle multiple DNS server timeouts
 	uploadTimeout = 30 * time.Second // Increased for encoding + DNS resolution
 	postTimeout   = 15 * time.Second // Increased to handle multiple DNS server timeouts
+
+	// stationReadTimeout bounds the GraphQL station-lookup probe used to verify
+	// detection-download read access.
+	stationReadTimeout = 15 * time.Second
 
 	// DNS-specific timeouts
 	// Linux default DNS timeout is 5s per server. With multiple DNS servers configured,
@@ -434,6 +446,8 @@ func runTest(ctx context.Context, stage TestStage, test birdweatherTest) TestRes
 		message = fmt.Sprintf("Successfully uploaded test soundscape (0.5 second silent audio) to BirdWeather. This recording should appear on your BirdWeather station at %s.", time.Now().Format("Jan 2, 2006 at 15:04:05"))
 	case DetectionPost:
 		message = "Successfully posted test detection to BirdWeather: Whooper Swan (Cygnus cygnus) with unlikely confidence."
+	case StationReadAccess:
+		message = "Successfully verified read access to your BirdWeather station for detection downloads."
 	default:
 		message = fmt.Sprintf("Successfully completed %s", stage)
 	}
@@ -856,6 +870,20 @@ func (b *BwClient) testDetectionPost(ctx context.Context, soundscapeID string) T
 	})
 }
 
+// testStationReadAccess verifies that the configured station ID resolves via
+// BirdWeather's public GraphQL read API, used by the detection download
+// feature. This is independent of the REST upload API tested by the stages
+// above, so a passing upload test does not guarantee this one also passes.
+func (b *BwClient) testStationReadAccess(ctx context.Context) TestResult {
+	readCtx, readCancel := context.WithTimeout(ctx, stationReadTimeout)
+	defer readCancel()
+
+	return runTest(readCtx, StationReadAccess, func(ctx context.Context) error {
+		_, err := NewGraphQLClient().VerifyStation(ctx, b.BirdweatherID)
+		return err
+	})
+}
+
 // testResultSender handles sending test results with proper state management.
 type testResultSender struct {
 	ctx        context.Context
@@ -1022,6 +1050,20 @@ func (b *BwClient) TestConnection(ctx context.Context, resultChan chan<- TestRes
 	sender.runStage(DetectionPost, func() TestResult {
 		return b.testDetectionPost(ctx, soundscapeID)
 	})
+
+	// Stage 5: Station Read Access (only when detection download is enabled;
+	// it exercises the GraphQL read API, not the REST upload API above).
+	if shouldTestStationReadAccess(b.Settings) {
+		sender.runStage(StationReadAccess, func() TestResult {
+			return b.testStationReadAccess(ctx)
+		})
+	}
+}
+
+// shouldTestStationReadAccess reports whether TestConnection should include the
+// Station Read Access stage, i.e. whether detection download is enabled.
+func shouldTestStationReadAccess(settings *conf.Settings) bool {
+	return settings != nil && settings.Realtime.Birdweather.Download.Enabled
 }
 
 // UploadTestSoundscape uploads a test soundscape for testing purposes

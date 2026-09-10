@@ -547,6 +547,7 @@ func (c *Handler) TestBirdWeatherConnection(ctx echo.Context) error {
 		Threshold:        request.Threshold,
 		LocationAccuracy: request.LocationAccuracy,
 		Debug:            request.Debug,
+		Download:         request.Download,
 	}
 
 	// Create test BirdWeather client with the test configuration
@@ -572,11 +573,12 @@ func (c *Handler) TestBirdWeatherConnection(ctx echo.Context) error {
 
 // BirdWeatherTestRequest represents a request to test BirdWeather connectivity
 type BirdWeatherTestRequest struct {
-	Enabled          bool    `json:"enabled"`
-	ID               string  `json:"id"`
-	Threshold        float64 `json:"threshold"`
-	LocationAccuracy float64 `json:"locationAccuracy"`
-	Debug            bool    `json:"debug"`
+	Enabled          bool                             `json:"enabled"`
+	ID               string                           `json:"id"`
+	Threshold        float64                          `json:"threshold"`
+	LocationAccuracy float64                          `json:"locationAccuracy"`
+	Debug            bool                             `json:"debug"`
+	Download         conf.BirdweatherDownloadSettings `json:"download"`
 }
 
 // EBirdTestRequest represents a request to test eBird API connectivity

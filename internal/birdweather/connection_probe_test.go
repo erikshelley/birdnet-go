@@ -94,6 +94,39 @@ func TestAPIConnectivityTimeout(t *testing.T) {
 	t.Logf("Timeout test result: %+v", result)
 }
 
+// TestStationReadAccessTimeout tests that the Station Read Access stage
+// properly times out/fails on an already-cancelled context, mirroring
+// TestAPIConnectivityTimeout.
+func TestStationReadAccessTimeout(t *testing.T) {
+	t.Parallel() // Safe - creates independent client
+
+	settings := MockSettings()
+	client, err := New(settings)
+	require.NoError(t, err, "Failed to create BwClient")
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+
+	result := client.testStationReadAccess(ctx)
+
+	assert.False(t, result.Success, "Expected station read access test to fail with timeout")
+	assert.NotEmpty(t, result.Error, "Expected error message")
+}
+
+// TestShouldTestStationReadAccess verifies the Station Read Access stage is
+// gated on Realtime.Birdweather.Download.Enabled.
+func TestShouldTestStationReadAccess(t *testing.T) {
+	t.Parallel()
+
+	assert.False(t, shouldTestStationReadAccess(nil))
+
+	settings := MockSettings()
+	assert.False(t, shouldTestStationReadAccess(settings))
+
+	settings.Realtime.Birdweather.Download.Enabled = true
+	assert.True(t, shouldTestStationReadAccess(settings))
+}
+
 // TestTimeoutConstants verifies that timeout constants are properly configured
 func TestTimeoutConstants(t *testing.T) {
 	t.Parallel() // Safe - only reads constants
