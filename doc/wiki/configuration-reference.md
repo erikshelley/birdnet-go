@@ -237,7 +237,7 @@ RealtimeSettings contains all settings related to realtime processing.
 | `realtime.logdeduplication.healthcheckintervalseconds` | integer | Health check interval in seconds (default: 60) |
 | `realtime.birdweather.enabled` | boolean | true to enable birdweather uploads |
 | `realtime.birdweather.debug` | boolean | true to enable debug mode |
-| `realtime.birdweather.id` | string | birdweather ID |
+| `realtime.birdweather.id` | string | birdweather station ID to upload detections to |
 | `realtime.birdweather.threshold` | number | threshold for prediction confidence for uploads and downloads |
 | `realtime.birdweather.locationaccuracy` | number | accuracy of location in meters |
 | `realtime.birdweather.retrysettings.enabled` | boolean | true to enable retry mechanism |
@@ -246,6 +246,7 @@ RealtimeSettings contains all settings related to realtime processing.
 | `realtime.birdweather.retrysettings.maxdelay` | integer | maximum delay between retries in seconds |
 | `realtime.birdweather.retrysettings.backoffmultiplier` | number | multiplier for exponential backoff |
 | `realtime.birdweather.download.enabled` | boolean | true to enable periodic detection downloads |
+| `realtime.birdweather.download.stationids` | string[] | BirdWeather station IDs to download detections from |
 | `realtime.birdweather.download.pollintervalminutes` | integer | minutes between download polls |
 | `realtime.birdweather.download.backfilldays` | integer | days of history to backfill on first enable (0 disables backfill) |
 | `realtime.ebird.enabled` | boolean | true to enable eBird integration |

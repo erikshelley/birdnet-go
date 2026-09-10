@@ -43,8 +43,18 @@ func sanitizeStringField(s string) string {
 
 // Precompiled regular expressions for validation
 var (
-	// birdweatherIDPattern validates Birdweather ID format (24 alphanumeric characters)
+	// birdweatherIDPattern validates the Birdweather upload token format (24
+	// alphanumeric characters).
 	birdweatherIDPattern = regexp.MustCompile(`^[a-zA-Z0-9]{24}$`)
+
+	// birdweatherStationIDPattern validates a Birdweather GraphQL station ID
+	// used for detection downloads. This is a different identifier space than
+	// the upload token above: BirdWeather's public API accepts short numeric
+	// station IDs (e.g. "4") or Base64-obfuscated Relay IDs, not the 24-char
+	// upload token format. This is intentionally permissive (length/charset
+	// sanity only); BirdWeather's API is the real arbiter of validity, surfaced
+	// via the "Station Read Access" test-connection stage.
+	birdweatherStationIDPattern = regexp.MustCompile(`^[A-Za-z0-9_\-=+]{1,64}$`)
 
 	// gpsCoordPattern matches the GPS-coordinate-as-device-string
 	// misconfiguration seen in the wild. The leading colon is optional:

@@ -521,20 +521,28 @@ func (c *Handler) TestBirdWeatherConnection(ctx echo.Context) error {
 		return c.HandleError(ctx, err, "Invalid BirdWeather test request", http.StatusBadRequest)
 	}
 
-	// Validate BirdWeather configuration from the request
-	if !request.Enabled {
+	// Uploads and downloads are independent features; at least one must be
+	// enabled and configured, but neither requires the other.
+	if !request.Enabled && !request.Download.Enabled {
 		return ctx.JSON(http.StatusOK, map[string]any{
 			"success": false,
-			"message": "BirdWeather integration is not enabled",
+			"message": "Neither BirdWeather uploads nor detection downloads are enabled",
 			"state":   "failed",
 		})
 	}
 
-	// Validate BirdWeather configuration
-	if request.ID == "" {
+	if request.Enabled && request.ID == "" {
 		return ctx.JSON(http.StatusBadRequest, map[string]any{
 			"success": false,
 			"message": "BirdWeather station ID not configured",
+			"state":   "failed",
+		})
+	}
+
+	if request.Download.Enabled && len(request.Download.StationIDs) == 0 {
+		return ctx.JSON(http.StatusBadRequest, map[string]any{
+			"success": false,
+			"message": "At least one BirdWeather download station ID is required",
 			"state":   "failed",
 		})
 	}

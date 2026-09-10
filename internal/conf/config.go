@@ -343,19 +343,22 @@ type RetrySettings struct {
 type BirdweatherSettings struct {
 	Enabled          bool                        `yaml:"enabled" json:"enabled"`                   // true to enable birdweather uploads
 	Debug            bool                        `yaml:"debug" json:"debug"`                       // true to enable debug mode
-	ID               string                      `yaml:"id" json:"id"`                             // birdweather ID
+	ID               string                      `yaml:"id" json:"id"`                             // birdweather station ID to upload detections to
 	Threshold        float64                     `yaml:"threshold" json:"threshold"`               // threshold for prediction confidence for uploads and downloads
 	LocationAccuracy float64                     `yaml:"locationaccuracy" json:"locationAccuracy"` // accuracy of location in meters
 	RetrySettings    RetrySettings               `yaml:"retrysettings" json:"retrySettings"`       // settings for retry mechanism
-	Download         BirdweatherDownloadSettings `yaml:"download" json:"download"`                 // settings for downloading detections from the same station
+	Download         BirdweatherDownloadSettings `yaml:"download" json:"download"`                 // settings for downloading detections from one or more BirdWeather stations
 }
 
-// BirdweatherDownloadSettings contains settings for downloading the user's own
-// station detections from BirdWeather so they appear alongside local detections.
+// BirdweatherDownloadSettings contains settings for downloading detections from
+// one or more BirdWeather stations so they appear alongside local detections.
+// StationIDs is independent of BirdweatherSettings.ID: downloads can come from
+// different station(s) than the one detections are uploaded to (or none at all).
 type BirdweatherDownloadSettings struct {
-	Enabled             bool `yaml:"enabled" json:"enabled"`                         // true to enable periodic detection downloads
-	PollIntervalMinutes int  `yaml:"pollintervalminutes" json:"pollIntervalMinutes"` // minutes between download polls
-	BackfillDays        int  `yaml:"backfilldays" json:"backfillDays"`               // days of history to backfill on first enable (0 disables backfill)
+	Enabled             bool     `yaml:"enabled" json:"enabled"`                         // true to enable periodic detection downloads
+	StationIDs          []string `yaml:"stationids" json:"stationIds"`                   // BirdWeather station IDs to download detections from
+	PollIntervalMinutes int      `yaml:"pollintervalminutes" json:"pollIntervalMinutes"` // minutes between download polls
+	BackfillDays        int      `yaml:"backfilldays" json:"backfillDays"`               // days of history to backfill on first enable (0 disables backfill)
 }
 
 // EBirdSettings contains settings for eBird API integration.

@@ -255,6 +255,42 @@ func TestValidateBirdweatherSettings_Valid(t *testing.T) {
 	}
 }
 
+// TestValidateBirdweatherSettings_DownloadStationIDs guards against regressing
+// to the upload-token format (24 alphanumeric chars) for download station IDs:
+// BirdWeather's GraphQL API accepts short numeric/opaque station IDs, a
+// different identifier space than the REST upload token.
+func TestValidateBirdweatherSettings_DownloadStationIDs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		stationID []string
+		wantValid bool
+	}{
+		{name: "short numeric ID", stationID: []string{"4"}, wantValid: true},
+		{name: "typical numeric ID", stationID: []string{"12345"}, wantValid: true},
+		{name: "base64-ish relay ID", stationID: []string{"U3RhdGlvbi0x"}, wantValid: true},
+		{name: "empty list rejected", stationID: nil, wantValid: false},
+		{name: "blank entry rejected", stationID: []string{""}, wantValid: false},
+		{name: "whitespace rejected", stationID: []string{"12 34"}, wantValid: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			settings := BirdweatherSettings{
+				Download: BirdweatherDownloadSettings{
+					Enabled:             true,
+					StationIDs:          tt.stationID,
+					PollIntervalMinutes: 15,
+					BackfillDays:        0,
+				},
+			}
+			result := ValidateBirdweatherSettings(&settings)
+			assert.Equal(t, tt.wantValid, result.Valid, "errors: %v", result.Errors)
+		})
+	}
+}
+
 // TestValidateBirdweatherSettings_Invalid verifies invalid Birdweather configurations.
 func TestValidateBirdweatherSettings_Invalid(t *testing.T) {
 	t.Parallel()

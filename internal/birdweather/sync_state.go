@@ -17,6 +17,7 @@ import (
 // migration.
 type BirdweatherImport struct {
 	ID                  uint      `gorm:"primaryKey"`
+	StationID           string    `gorm:"column:station_id;type:varchar(64);not null;index:idx_birdweather_import_station"`
 	ExternalDetectionID string    `gorm:"column:external_detection_id;type:varchar(64);not null;uniqueIndex"`
 	NoteID              uint      `gorm:"not null"`
 	ImportedAt          time.Time `gorm:"index;not null"`
@@ -47,12 +48,12 @@ func (s *importStore) migrate() error {
 	})
 }
 
-// lastImportedAt returns the most recent ImportedAt across all tracked
-// imports, or the zero time if none exist yet (first run).
-func (s *importStore) lastImportedAt() (time.Time, error) {
+// lastImportedAt returns the most recent ImportedAt recorded for stationID, or
+// the zero time if that station has no tracked imports yet (first run).
+func (s *importStore) lastImportedAt(stationID string) (time.Time, error) {
 	var row BirdweatherImport
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		result := tx.Order("imported_at DESC").First(&row)
+		result := tx.Where("station_id = ?", stationID).Order("imported_at DESC").First(&row)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil
 		}
@@ -76,9 +77,10 @@ func (s *importStore) alreadyImported(externalID string) (bool, error) {
 // record inserts a tracking row for a newly imported detection. A duplicate
 // externalID fails the unique index; the caller should treat that as
 // already-imported (e.g. a racing cycle) rather than a hard error.
-func (s *importStore) record(externalID string, noteID uint, importedAt time.Time) error {
+func (s *importStore) record(stationID, externalID string, noteID uint, importedAt time.Time) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		return tx.Create(&BirdweatherImport{
+			StationID:           stationID,
 			ExternalDetectionID: externalID,
 			NoteID:              noteID,
 			ImportedAt:          importedAt,

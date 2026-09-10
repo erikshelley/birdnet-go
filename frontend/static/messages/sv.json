@@ -3181,6 +3181,11 @@
           "title": "Download Detections",
           "description": "Periodically download detections from your own BirdWeather station so they appear alongside local detections in the dashboard, explore, and patterns pages.",
           "enable": "Enable Detection Downloads",
+          "stationIds": {
+            "label": "Station IDs",
+            "placeholder": "abc123def456ghi789jkl012, ...",
+            "helpText": "Comma-separated BirdWeather station IDs to download detections from. These can be different from the upload token above."
+          },
           "pollInterval": {
             "label": "Poll Interval (minutes)",
             "helpText": "How often to check BirdWeather for new detections from your station."
@@ -3196,7 +3201,8 @@
           "enabledRequired": "BirdWeather måste vara aktiverat för att testa",
           "tokenRequired": "BirdWeather-token måste anges",
           "inProgress": "Test pågår...",
-          "description": "Testa BirdWeather-anslutning"
+          "description": "Testa BirdWeather-anslutning",
+          "rateLimited": "Please wait one minute before testing again."
         }
       },
       "mqtt": {

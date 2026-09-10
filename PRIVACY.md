@@ -54,11 +54,11 @@ BirdNET-Go follows **Privacy by Design** principles:
 
 **BirdWeather Integration** (disabled by default):
 
-- **Purpose**: Share bird detections with the citizen science platform, and optionally download your own station's detections back so they appear alongside local detections
+- **Purpose**: Share bird detections with the citizen science platform, and/or download detections from one or more BirdWeather stations you specify so they appear alongside local detections. These are independent, separately opt-in features - you can use either or both, with different stations for each
 - **Data sent (upload)**: 3-second audio clips, species data, randomized location coordinates
-- **Data received (download, separately opt-in)**: Species, confidence, timestamp, and location for detections previously uploaded from your own configured station only - no audio is downloaded, and no other users' or stations' data is accessed
-- **Requires**: User account registration and station ID configuration
-- **Privacy protection**: Location randomized within user-defined accuracy radius (upload); download uses the same station ID so it only ever reads back your own data
+- **Data received (download, separately opt-in)**: Species, confidence, timestamp, and location for detections from the specific station ID(s) you configure - no audio is downloaded, and no data is accessed from stations you have not explicitly listed
+- **Requires**: User account registration and station ID configuration (upload token and/or download station ID(s), configured independently)
+- **Privacy protection**: Location randomized within user-defined accuracy radius (upload); download only reads back detections from the station ID(s) you explicitly configure
 
 **MQTT Broker Integration** (disabled by default):
 

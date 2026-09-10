@@ -418,6 +418,7 @@ export interface BirdWeatherSettings {
 
 export interface BirdWeatherDownloadSettings {
   enabled: boolean;
+  stationIds: string[];
   pollIntervalMinutes: number;
   backfillDays: number;
 }
@@ -1045,7 +1046,12 @@ function createEmptySettings(): SettingsFormData {
         locationAccuracy: 1000,
         threshold: 0.7,
         debug: false,
-        download: { enabled: false, pollIntervalMinutes: 15, backfillDays: 0 },
+        download: {
+          enabled: false,
+          stationIds: [],
+          pollIntervalMinutes: 15,
+          backfillDays: 0,
+        },
       },
       mqtt: {
         enabled: false,

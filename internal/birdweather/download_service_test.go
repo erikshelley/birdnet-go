@@ -25,6 +25,9 @@ type fakeStationServer struct {
 	mu    sync.Mutex
 	calls int
 	pages []stationDetectionsResponse
+	// errorAt maps a 0-based call index to an HTTP status to return instead of
+	// a page, letting tests simulate one station failing while others succeed.
+	errorAt map[int]int
 }
 
 func newFakeStationServer(t *testing.T, pages ...stationDetectionsResponse) *httptest.Server {
@@ -33,11 +36,22 @@ func newFakeStationServer(t *testing.T, pages ...stationDetectionsResponse) *htt
 	return httptest.NewServer(http.HandlerFunc(f.handle))
 }
 
+func newFakeStationServerWithErrors(t *testing.T, errorAt map[int]int, pages ...stationDetectionsResponse) *httptest.Server {
+	t.Helper()
+	f := &fakeStationServer{pages: pages, errorAt: errorAt}
+	return httptest.NewServer(http.HandlerFunc(f.handle))
+}
+
 func (f *fakeStationServer) handle(w http.ResponseWriter, _ *http.Request) {
 	f.mu.Lock()
 	idx := f.calls
 	f.calls++
 	f.mu.Unlock()
+
+	if status, ok := f.errorAt[idx]; ok {
+		http.Error(w, "simulated failure", status)
+		return
+	}
 
 	var page stationDetectionsResponse
 	if idx < len(f.pages) {
@@ -108,13 +122,13 @@ func newTestDownloadService(t *testing.T, server *httptest.Server, repo datastor
 	}
 }
 
-func testSettings(stationID string, enabled bool, backfillDays int, threshold float64) *conf.Settings {
+func testSettings(stationIDs []string, enabled bool, backfillDays int, threshold float64) *conf.Settings {
 	settings := &conf.Settings{}
 	settings.Realtime.Birdweather = conf.BirdweatherSettings{
-		ID:        stationID,
 		Threshold: threshold,
 		Download: conf.BirdweatherDownloadSettings{
 			Enabled:      enabled,
+			StationIDs:   stationIDs,
 			BackfillDays: backfillDays,
 		},
 	}
@@ -127,23 +141,24 @@ func TestDownloadService_Poll_DisabledIsNoop(t *testing.T) {
 	defer server.Close()
 
 	repo := mocks.NewMockDetectionRepository(t)
-	settings := testSettings("station-1", false, 0, 0.5)
+	settings := testSettings([]string{"station-1"}, false, 0, 0.5)
 	svc := newTestDownloadService(t, server, repo, settings)
 
 	require.NoError(t, svc.Poll(t.Context()))
 	repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything, mock.Anything)
 }
 
-func TestDownloadService_Poll_MissingStationIDErrors(t *testing.T) {
+func TestDownloadService_Poll_NoStationIDsIsNoop(t *testing.T) {
 	t.Parallel()
 	server := newFakeStationServer(t, singlePageResponse())
 	defer server.Close()
 
 	repo := mocks.NewMockDetectionRepository(t)
-	settings := testSettings("", true, 0, 0.5)
+	settings := testSettings(nil, true, 0, 0.5)
 	svc := newTestDownloadService(t, server, repo, settings)
 
-	require.Error(t, svc.Poll(t.Context()))
+	require.NoError(t, svc.Poll(t.Context()))
+	repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestDownloadService_Poll_ImportsNewDetectionsAboveThreshold(t *testing.T) {
@@ -166,7 +181,7 @@ func TestDownloadService_Poll_ImportsNewDetectionsAboveThreshold(t *testing.T) {
 		Return(nil).
 		Once()
 
-	settings := testSettings("station-1", true, 1, 0.5)
+	settings := testSettings([]string{"station-1"}, true, 1, 0.5)
 	svc := newTestDownloadService(t, server, repo, settings)
 
 	require.NoError(t, svc.Poll(t.Context()))
@@ -198,7 +213,7 @@ func TestDownloadService_Poll_SkipsAlreadyImportedDetections(t *testing.T) {
 		Return(nil).
 		Once() // only the first Poll should save; the second must skip it
 
-	settings := testSettings("station-1", true, 1, 0.5)
+	settings := testSettings([]string{"station-1"}, true, 1, 0.5)
 	svc := newTestDownloadService(t, server, repo, settings)
 
 	require.NoError(t, svc.Poll(t.Context()))
@@ -211,10 +226,10 @@ func TestDownloadService_SyncWindowStart_FirstRunUsesBackfill(t *testing.T) {
 	defer server.Close()
 
 	repo := mocks.NewMockDetectionRepository(t)
-	settings := testSettings("station-1", true, 7, 0.5)
+	settings := testSettings([]string{"station-1"}, true, 7, 0.5)
 	svc := newTestDownloadService(t, server, repo, settings)
 
-	start, err := svc.syncWindowStart(&settings.Realtime.Birdweather)
+	start, err := svc.syncWindowStart(&settings.Realtime.Birdweather, "station-1")
 	require.NoError(t, err)
 	require.WithinDuration(t, time.Now().UTC().AddDate(0, 0, -7), start, time.Minute)
 }
@@ -225,10 +240,10 @@ func TestDownloadService_SyncWindowStart_NoBackfillStartsNow(t *testing.T) {
 	defer server.Close()
 
 	repo := mocks.NewMockDetectionRepository(t)
-	settings := testSettings("station-1", true, 0, 0.5)
+	settings := testSettings([]string{"station-1"}, true, 0, 0.5)
 	svc := newTestDownloadService(t, server, repo, settings)
 
-	start, err := svc.syncWindowStart(&settings.Realtime.Birdweather)
+	start, err := svc.syncWindowStart(&settings.Realtime.Birdweather, "station-1")
 	require.NoError(t, err)
 	require.WithinDuration(t, time.Now().UTC(), start, time.Minute)
 }
@@ -243,4 +258,77 @@ func TestDownloadServiceRegistry(t *testing.T) {
 
 	UnregisterDownloadService()
 	require.False(t, DownloadServiceRegistered())
+}
+
+func TestDownloadService_Poll_MultipleStationsGetDistinctSources(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	server := newFakeStationServer(t,
+		singlePageResponse(detNode("station-a-det", now, 0.9)),
+		singlePageResponse(detNode("station-b-det", now, 0.9)),
+	)
+	defer server.Close()
+
+	var savedSourceIDs []string
+	repo := mocks.NewMockDetectionRepository(t)
+	repo.EXPECT().
+		Save(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, result *detection.Result, _ []detection.AdditionalResult) {
+			savedSourceIDs = append(savedSourceIDs, result.AudioSource.ID)
+			result.ID = uint(len(savedSourceIDs)) //nolint:gosec // test-only, len() is always small and non-negative
+		}).
+		Return(nil).
+		Times(2)
+
+	settings := testSettings([]string{"station-a", "station-b"}, true, 1, 0.5)
+	svc := newTestDownloadService(t, server, repo, settings)
+
+	require.NoError(t, svc.Poll(t.Context()))
+	require.ElementsMatch(t, []string{"birdweather:station-a", "birdweather:station-b"}, savedSourceIDs)
+}
+
+func TestDownloadService_Poll_OneStationFailingDoesNotBlockOthers(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	server := newFakeStationServerWithErrors(t,
+		map[int]int{0: http.StatusInternalServerError},
+		stationDetectionsResponse{},
+		singlePageResponse(detNode("station-b-det", now, 0.9)),
+	)
+	defer server.Close()
+
+	repo := mocks.NewMockDetectionRepository(t)
+	repo.EXPECT().
+		Save(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, result *detection.Result, _ []detection.AdditionalResult) {
+			result.ID = 1
+		}).
+		Return(nil).
+		Once()
+
+	settings := testSettings([]string{"station-a", "station-b"}, true, 1, 0.5)
+	svc := newTestDownloadService(t, server, repo, settings)
+
+	// A single failing station must not fail the whole cycle: station-b still imports.
+	require.NoError(t, svc.Poll(t.Context()))
+
+	imported, err := svc.imports.alreadyImported("station-b-det")
+	require.NoError(t, err)
+	require.True(t, imported)
+}
+
+func TestDownloadService_Poll_AllStationsFailingReturnsError(t *testing.T) {
+	t.Parallel()
+	server := newFakeStationServerWithErrors(t,
+		map[int]int{0: http.StatusInternalServerError, 1: http.StatusInternalServerError},
+		stationDetectionsResponse{}, stationDetectionsResponse{},
+	)
+	defer server.Close()
+
+	repo := mocks.NewMockDetectionRepository(t)
+	settings := testSettings([]string{"station-a", "station-b"}, true, 1, 0.5)
+	svc := newTestDownloadService(t, server, repo, settings)
+
+	require.Error(t, svc.Poll(t.Context()))
+	repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything, mock.Anything)
 }

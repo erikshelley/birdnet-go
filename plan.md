@@ -9,6 +9,13 @@
 - Backfill: support configurable historical backfill window on first enable (not forward-only).
 - PR scope: land the whole feature as one PR (one cohesive concern per AGENTS.md's PR rule). If maintainers deem it too large during review, split into follow-up PRs at that point rather than pre-splitting now.
 
+## Design revision (post-implementation, during review)
+
+- **Upload and download station IDs are independent, and download supports multiple stations.** Original decision reused the single upload `ID` field for both directions; this was wrong. Real use cases: (1) upload-only to one's own station, (2) download-only from one or more other stations to merge into local detections, (3) both simultaneously with _different_ IDs (e.g. download from several stations, upload the aggregate elsewhere). Fix: `BirdweatherDownloadSettings` gets its own `StationIDs []string`, independent of the top-level `ID` (which remains upload-only). Download no longer depends on upload being enabled at all (UI previously nested the whole download subsection inside the upload-enabled fieldset - that was a bug, not a design requirement; backend validation was already independent).
+- Per-station sync bookkeeping: `BirdweatherImport` gets a `StationID` column so each configured station tracks its own high-water mark independently (stations may be added/removed or backfilled at different times).
+- Per-station `AudioSource`: each station gets a distinct source id/display name (`birdweather:<stationID>`) so multiple stations show up as distinct, filterable sources rather than being merged into one generic "BirdWeather" source.
+- `TestConnection`/`TestBirdWeatherConnection` now run upload stages only if upload is enabled, and the (now per-station-list) "Station Read Access" stage only if download is enabled - independently, not one gated on the other.
+
 ## Key research findings
 
 - BirdWeather has a public GraphQL API at https://app.birdweather.com/graphql (no auth token model documented in our client; station ID used in upload URLs may or may not equal the GraphQL station ID - NEEDS VERIFICATION at implementation time via a `station(id: ID!) { id name }` test query).

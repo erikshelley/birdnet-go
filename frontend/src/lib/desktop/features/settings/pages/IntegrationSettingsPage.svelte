@@ -92,7 +92,12 @@
         locationAccuracy: 1000,
         threshold: 0.7,
         debug: false,
-        download: { enabled: false, pollIntervalMinutes: 15, backfillDays: 0 },
+        download: {
+          enabled: false,
+          stationIds: [],
+          pollIntervalMinutes: 15,
+          backfillDays: 0,
+        },
       },
       mqtt: {
         enabled: false,
@@ -137,6 +142,16 @@
       (store.formData as SettingsFormData)?.realtime?.birdweather
     )
   );
+
+  // BirdWeather uploads and detection downloads are independent features that
+  // can be tested together or separately: the test button is enabled as soon
+  // as either is configured enough to attempt.
+  let birdweatherTestable = $derived.by(() => {
+    const bw = store.formData?.realtime?.birdweather ?? settings.birdweather;
+    const uploadReady = Boolean(bw?.enabled && bw?.id);
+    const downloadReady = Boolean(bw?.download?.enabled && bw?.download?.stationIds?.length);
+    return uploadReady || downloadReady;
+  });
 
   let mqttHasChanges = $derived(
     hasSettingsChanged(
@@ -341,6 +356,19 @@
       birdweather: {
         ...settings.birdweather!,
         download: { ...settings.birdweather!.download, enabled },
+      },
+    });
+  }
+
+  function updateBirdWeatherDownloadStationIds(value: string) {
+    const stationIds = value
+      .split(',')
+      .map(entry => entry.trim())
+      .filter(Boolean);
+    settingsActions.updateSection('realtime', {
+      birdweather: {
+        ...settings.birdweather!,
+        download: { ...settings.birdweather!.download, stationIds },
       },
     });
   }
@@ -559,7 +587,7 @@
       // Exclude latitude/longitude (PII) and redact station ID before logging
       logger.debug(
         'BirdWeather test config:',
-        redactForLogging(currentBirdweather, ['id', 'latitude', 'longitude'])
+        redactForLogging(currentBirdweather, ['id', 'latitude', 'longitude', 'download'])
       );
 
       // Prepare test payload
@@ -571,6 +599,7 @@
         debug: currentBirdweather.debug || false,
         download: {
           enabled: currentBirdweather.download?.enabled || false,
+          stationIds: currentBirdweather.download?.stationIds || [],
           pollIntervalMinutes: currentBirdweather.download?.pollIntervalMinutes || 15,
           backfillDays: currentBirdweather.download?.backfillDays || 0,
         },
@@ -660,6 +689,15 @@
           try {
             const stageResult = JSON.parse(jsonStr);
             logger.debug('BirdWeather test result received:', stageResult);
+
+            // The backend sends a stable, untranslated sentinel ('rate limit
+            // exceeded') for this specific failure rather than a user-facing
+            // string; show a localized message instead of the raw text.
+            if (stageResult.error === 'rate limit exceeded') {
+              const rateLimitedText = t('settings.integration.birdweather.test.rateLimited');
+              stageResult.message = rateLimitedText;
+              stageResult.error = rateLimitedText;
+            }
 
             // Handle initial failure responses that don't have a stage
             if (!stageResult.stage) {
@@ -1220,107 +1258,111 @@
                 disabled={!settings.birdweather?.enabled || store.isLoading || store.isSaving}
               />
             </div>
-
-            <!-- Detection Download Settings -->
-            <div class="mt-6 pt-6 border-t border-[var(--color-base-300)]">
-              <h3 class="text-sm font-semibold mb-3">
-                {t('settings.integration.birdweather.download.title')}
-              </h3>
-              <p class="text-sm text-[var(--color-base-content)] opacity-70 mb-4">
-                {t('settings.integration.birdweather.download.description')}
-              </p>
-
-              <Checkbox
-                checked={settings.birdweather!.download.enabled}
-                label={t('settings.integration.birdweather.download.enable')}
-                disabled={!settings.birdweather?.enabled || store.isLoading || store.isSaving}
-                onchange={updateBirdWeatherDownloadEnabled}
-              />
-
-              <fieldset
-                disabled={!settings.birdweather?.download?.enabled ||
-                  !settings.birdweather?.enabled ||
-                  store.isLoading ||
-                  store.isSaving}
-                class="contents"
-              >
-                <div
-                  class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4 transition-opacity duration-200"
-                  class:opacity-50={!settings.birdweather?.download?.enabled}
-                >
-                  <NumberField
-                    label={t('settings.integration.birdweather.download.pollInterval.label')}
-                    value={settings.birdweather!.download.pollIntervalMinutes}
-                    onUpdate={updateBirdWeatherDownloadPollInterval}
-                    min={5}
-                    max={1440}
-                    step={1}
-                    placeholder="15"
-                    helpText={t('settings.integration.birdweather.download.pollInterval.helpText')}
-                    disabled={!settings.birdweather?.download?.enabled ||
-                      !settings.birdweather?.enabled ||
-                      store.isLoading ||
-                      store.isSaving}
-                  />
-
-                  <NumberField
-                    label={t('settings.integration.birdweather.download.backfillDays.label')}
-                    value={settings.birdweather!.download.backfillDays}
-                    onUpdate={updateBirdWeatherDownloadBackfillDays}
-                    min={0}
-                    max={90}
-                    step={1}
-                    placeholder="0"
-                    helpText={t('settings.integration.birdweather.download.backfillDays.helpText')}
-                    disabled={!settings.birdweather?.download?.enabled ||
-                      !settings.birdweather?.enabled ||
-                      store.isLoading ||
-                      store.isSaving}
-                  />
-                </div>
-              </fieldset>
-            </div>
-
-            <!-- Test Connection -->
-            <div class="space-y-4 mt-4">
-              <div class="flex items-center gap-3">
-                <SettingsButton
-                  onclick={testBirdWeather}
-                  loading={testStates.birdweather.isRunning}
-                  loadingText={t('settings.integration.birdweather.test.loading')}
-                  disabled={!(
-                    store.formData?.realtime?.birdweather?.enabled ?? settings.birdweather?.enabled
-                  ) ||
-                    !(store.formData?.realtime?.birdweather?.id ?? settings.birdweather?.id) ||
-                    testStates.birdweather.isRunning}
-                >
-                  {t('settings.integration.birdweather.test.button')}
-                </SettingsButton>
-                <span class="text-sm text-[var(--color-base-content)] opacity-70">
-                  {#if !(store.formData?.realtime?.birdweather?.enabled ?? settings.birdweather?.enabled)}
-                    {t('settings.integration.birdweather.test.enabledRequired')}
-                  {:else if !(store.formData?.realtime?.birdweather?.id ?? settings.birdweather?.id)}
-                    {t('settings.integration.birdweather.test.tokenRequired')}
-                  {:else if testStates.birdweather.isRunning}
-                    {t('settings.integration.birdweather.test.inProgress')}
-                  {:else}
-                    {t('settings.integration.birdweather.test.description')}
-                  {/if}
-                </span>
-              </div>
-
-              {#if testStates.birdweather.stages.length > 0}
-                <MultiStageOperation
-                  stages={testStates.birdweather.stages}
-                  variant="compact"
-                  showProgress={false}
-                />
-              {/if}
-
-              <TestSuccessNote show={testStates.birdweather.showSuccessNote} />
-            </div>
           </div>
         </fieldset>
+
+        <!-- Detection Download Settings - independent of uploads: a station's -->
+        <!-- detections can be downloaded without ever uploading to it, or vice versa. -->
+        <div class="mt-6 pt-6 border-t border-[var(--color-base-300)]">
+          <h3 class="text-sm font-semibold mb-3">
+            {t('settings.integration.birdweather.download.title')}
+          </h3>
+          <p class="text-sm text-[var(--color-base-content)] opacity-70 mb-4">
+            {t('settings.integration.birdweather.download.description')}
+          </p>
+
+          <Checkbox
+            checked={settings.birdweather!.download.enabled}
+            label={t('settings.integration.birdweather.download.enable')}
+            disabled={store.isLoading || store.isSaving}
+            onchange={updateBirdWeatherDownloadEnabled}
+          />
+
+          <fieldset
+            disabled={!settings.birdweather?.download?.enabled || store.isLoading || store.isSaving}
+            class="contents"
+          >
+            <div
+              class="space-y-6 mt-4 transition-opacity duration-200"
+              class:opacity-50={!settings.birdweather?.download?.enabled}
+            >
+              <TextInput
+                id="birdweather-download-station-ids"
+                value={(settings.birdweather!.download.stationIds ?? []).join(', ')}
+                label={t('settings.integration.birdweather.download.stationIds.label')}
+                placeholder={t('settings.integration.birdweather.download.stationIds.placeholder')}
+                helpText={t('settings.integration.birdweather.download.stationIds.helpText')}
+                disabled={!settings.birdweather?.download?.enabled ||
+                  store.isLoading ||
+                  store.isSaving}
+                onchange={updateBirdWeatherDownloadStationIds}
+              />
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <NumberField
+                  label={t('settings.integration.birdweather.download.pollInterval.label')}
+                  value={settings.birdweather!.download.pollIntervalMinutes}
+                  onUpdate={updateBirdWeatherDownloadPollInterval}
+                  min={5}
+                  max={1440}
+                  step={1}
+                  placeholder="15"
+                  helpText={t('settings.integration.birdweather.download.pollInterval.helpText')}
+                  disabled={!settings.birdweather?.download?.enabled ||
+                    store.isLoading ||
+                    store.isSaving}
+                />
+
+                <NumberField
+                  label={t('settings.integration.birdweather.download.backfillDays.label')}
+                  value={settings.birdweather!.download.backfillDays}
+                  onUpdate={updateBirdWeatherDownloadBackfillDays}
+                  min={0}
+                  max={90}
+                  step={1}
+                  placeholder="0"
+                  helpText={t('settings.integration.birdweather.download.backfillDays.helpText')}
+                  disabled={!settings.birdweather?.download?.enabled ||
+                    store.isLoading ||
+                    store.isSaving}
+                />
+              </div>
+            </div>
+          </fieldset>
+        </div>
+
+        <!-- Test Connection - tests whichever of upload/download is enabled -->
+        <div class="space-y-4 mt-4">
+          <div class="flex items-center gap-3">
+            <SettingsButton
+              onclick={testBirdWeather}
+              loading={testStates.birdweather.isRunning}
+              loadingText={t('settings.integration.birdweather.test.loading')}
+              disabled={!birdweatherTestable || testStates.birdweather.isRunning}
+            >
+              {t('settings.integration.birdweather.test.button')}
+            </SettingsButton>
+            <span class="text-sm text-[var(--color-base-content)] opacity-70">
+              {#if !birdweatherTestable}
+                {t('settings.integration.birdweather.test.enabledRequired')}
+              {:else if testStates.birdweather.isRunning}
+                {t('settings.integration.birdweather.test.inProgress')}
+              {:else}
+                {t('settings.integration.birdweather.test.description')}
+              {/if}
+            </span>
+          </div>
+
+          {#if testStates.birdweather.stages.length > 0}
+            <MultiStageOperation
+              stages={testStates.birdweather.stages}
+              variant="compact"
+              showProgress={false}
+            />
+          {/if}
+
+          <TestSuccessNote show={testStates.birdweather.showSuccessNote} />
+        </div>
       </div>
     </SettingsSection>
   </div>

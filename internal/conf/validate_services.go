@@ -39,6 +39,9 @@ const (
 	birdweatherDownloadMaxPollIntervalMinutes = 1440 // 24 hours
 	birdweatherDownloadMinBackfillDays        = 0    // 0 disables backfill
 	birdweatherDownloadMaxBackfillDays        = 90
+	// birdweatherDownloadMaxStationIDs caps how many stations a single instance
+	// polls per cycle, bounding worst-case API load.
+	birdweatherDownloadMaxStationIDs = 20
 )
 
 // ValidateBirdNETSettings performs BirdNET validation without side effects.
@@ -154,15 +157,23 @@ func ValidateBirdweatherSettings(settings *BirdweatherSettings) ValidationResult
 	}
 
 	if settings.Download.Enabled {
-		// Downloads reuse the same station ID as uploads (see BirdweatherDownloadSettings),
-		// so it must be present and well-formed regardless of whether uploads are enabled.
+		// Download station IDs are independent of the upload ID above: a user may
+		// download from different (or multiple) stations than the one they upload
+		// to, or download without uploading at all.
 		switch {
-		case settings.ID == "":
+		case len(settings.Download.StationIDs) == 0:
 			result.Valid = false
-			result.Errors = append(result.Errors, "Birdweather ID is required when detection download is enabled")
-		case !birdweatherIDPattern.MatchString(settings.ID):
+			result.Errors = append(result.Errors, "at least one Birdweather station ID is required when detection download is enabled")
+		case len(settings.Download.StationIDs) > birdweatherDownloadMaxStationIDs:
 			result.Valid = false
-			result.Errors = append(result.Errors, "Invalid Birdweather ID format: must be 24 alphanumeric characters")
+			result.Errors = append(result.Errors, fmt.Sprintf("birdweather download supports at most %d station IDs", birdweatherDownloadMaxStationIDs))
+		default:
+			for _, id := range settings.Download.StationIDs {
+				if !birdweatherStationIDPattern.MatchString(id) {
+					result.Valid = false
+					result.Errors = append(result.Errors, fmt.Sprintf("invalid Birdweather download station ID %q", id))
+				}
+			}
 		}
 
 		checkRange(&result, settings.Download.PollIntervalMinutes,

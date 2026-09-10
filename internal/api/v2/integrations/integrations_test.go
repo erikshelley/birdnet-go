@@ -50,8 +50,12 @@ func runIntegrationConnectionHandlerTest(t *testing.T, handlerFunc func(*Handler
 			if strings.Contains(endpoint, "birdweather") {
 				// BirdWeather endpoint expects JSON body matching the controller settings
 				bwSettings := controller.Settings.Load().Realtime.Birdweather
-				bodyJSON := fmt.Sprintf(`{"enabled":%t,"id":%q,"threshold":%f,"locationAccuracy":%f}`,
-					bwSettings.Enabled, bwSettings.ID, bwSettings.Threshold, bwSettings.LocationAccuracy)
+				stationIDsJSON, err := json.Marshal(bwSettings.Download.StationIDs)
+				require.NoError(t, err)
+				bodyJSON := fmt.Sprintf(
+					`{"enabled":%t,"id":%q,"threshold":%f,"locationAccuracy":%f,"download":{"enabled":%t,"stationIds":%s}}`,
+					bwSettings.Enabled, bwSettings.ID, bwSettings.Threshold, bwSettings.LocationAccuracy,
+					bwSettings.Download.Enabled, stationIDsJSON)
 				req = httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(bodyJSON))
 				req.Header.Set("Content-Type", "application/json")
 			} else {
@@ -314,13 +318,14 @@ func TestTestBirdWeatherConnection(t *testing.T) {
 		expectedBody   string
 	}{
 		{
-			name: "BirdWeather Not Enabled",
+			name: "Neither Upload Nor Download Enabled",
 			setupSettings: func(controller *Handler) {
 				controller.Settings.Load().Realtime.Birdweather.Enabled = false
 				controller.Settings.Load().Realtime.Birdweather.ID = "ABC123"
+				controller.Settings.Load().Realtime.Birdweather.Download.Enabled = false
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `{"success":false,"message":"BirdWeather integration is not enabled","state":"failed"}`,
+			expectedBody:   `{"success":false,"message":"Neither BirdWeather uploads nor detection downloads are enabled","state":"failed"}`,
 		},
 		{
 			name: "Station ID Not Configured",
@@ -330,6 +335,16 @@ func TestTestBirdWeatherConnection(t *testing.T) {
 			},
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   `{"success":false,"message":"BirdWeather station ID not configured","state":"failed"}`,
+		},
+		{
+			name: "Download Enabled Without Station IDs",
+			setupSettings: func(controller *Handler) {
+				controller.Settings.Load().Realtime.Birdweather.Enabled = false
+				controller.Settings.Load().Realtime.Birdweather.Download.Enabled = true
+				controller.Settings.Load().Realtime.Birdweather.Download.StationIDs = nil
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"success":false,"message":"At least one BirdWeather download station ID is required","state":"failed"}`,
 		},
 	}
 

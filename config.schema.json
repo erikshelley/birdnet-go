@@ -532,6 +532,13 @@
           "type": "boolean",
           "description": "true to enable periodic detection downloads"
         },
+        "stationids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "BirdWeather station IDs to download detections from"
+        },
         "pollintervalminutes": {
           "type": "integer",
           "description": "minutes between download polls"
@@ -543,7 +550,7 @@
       },
       "additionalProperties": false,
       "type": "object",
-      "description": "BirdweatherDownloadSettings contains settings for downloading the user's own station detections from BirdWeather so they appear alongside local detections."
+      "description": "BirdweatherDownloadSettings contains settings for downloading detections from one or more BirdWeather stations so they appear alongside local detections."
     },
     "BirdweatherSettings": {
       "properties": {
@@ -557,7 +564,7 @@
         },
         "id": {
           "type": "string",
-          "description": "birdweather ID"
+          "description": "birdweather station ID to upload detections to"
         },
         "threshold": {
           "type": "number",
@@ -573,7 +580,7 @@
         },
         "download": {
           "$ref": "#/$defs/BirdweatherDownloadSettings",
-          "description": "settings for downloading detections from the same station"
+          "description": "settings for downloading detections from one or more BirdWeather stations"
         }
       },
       "additionalProperties": false,

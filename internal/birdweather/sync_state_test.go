@@ -26,7 +26,7 @@ func TestImportStore_LastImportedAt_EmptyReturnsZero(t *testing.T) {
 	t.Parallel()
 	store := newTestImportStore(t)
 
-	last, err := store.lastImportedAt()
+	last, err := store.lastImportedAt("station-1")
 	require.NoError(t, err)
 	require.True(t, last.IsZero())
 }
@@ -40,13 +40,13 @@ func TestImportStore_RecordAndAlreadyImported(t *testing.T) {
 	require.False(t, imported)
 
 	now := time.Now().UTC().Truncate(time.Second)
-	require.NoError(t, store.record("det-1", 42, now))
+	require.NoError(t, store.record("station-1", "det-1", 42, now))
 
 	imported, err = store.alreadyImported("det-1")
 	require.NoError(t, err)
 	require.True(t, imported)
 
-	last, err := store.lastImportedAt()
+	last, err := store.lastImportedAt("station-1")
 	require.NoError(t, err)
 	require.WithinDuration(t, now, last, time.Second)
 }
@@ -57,12 +57,30 @@ func TestImportStore_LastImportedAt_ReturnsMostRecent(t *testing.T) {
 
 	older := time.Now().Add(-time.Hour).UTC()
 	newer := time.Now().UTC()
-	require.NoError(t, store.record("det-old", 1, older))
-	require.NoError(t, store.record("det-new", 2, newer))
+	require.NoError(t, store.record("station-1", "det-old", 1, older))
+	require.NoError(t, store.record("station-1", "det-new", 2, newer))
 
-	last, err := store.lastImportedAt()
+	last, err := store.lastImportedAt("station-1")
 	require.NoError(t, err)
 	require.WithinDuration(t, newer, last, time.Second)
+}
+
+func TestImportStore_LastImportedAt_IsScopedPerStation(t *testing.T) {
+	t.Parallel()
+	store := newTestImportStore(t)
+
+	stationAImported := time.Now().Add(-48 * time.Hour).UTC()
+	stationBImported := time.Now().UTC()
+	require.NoError(t, store.record("station-a", "det-a", 1, stationAImported))
+	require.NoError(t, store.record("station-b", "det-b", 2, stationBImported))
+
+	lastA, err := store.lastImportedAt("station-a")
+	require.NoError(t, err)
+	require.WithinDuration(t, stationAImported, lastA, time.Second)
+
+	lastB, err := store.lastImportedAt("station-b")
+	require.NoError(t, err)
+	require.WithinDuration(t, stationBImported, lastB, time.Second)
 }
 
 func TestImportStore_Record_DuplicateExternalIDFails(t *testing.T) {
@@ -70,6 +88,6 @@ func TestImportStore_Record_DuplicateExternalIDFails(t *testing.T) {
 	store := newTestImportStore(t)
 
 	now := time.Now().UTC()
-	require.NoError(t, store.record("dup", 1, now))
-	require.Error(t, store.record("dup", 2, now))
+	require.NoError(t, store.record("station-1", "dup", 1, now))
+	require.Error(t, store.record("station-1", "dup", 2, now))
 }

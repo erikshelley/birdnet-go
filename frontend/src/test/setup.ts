@@ -354,7 +354,12 @@ vi.mock('$lib/utils/settingsApi.js', () => {
         locationAccuracy: 500,
         threshold: 0.8,
         debug: false,
-        download: { enabled: false, pollIntervalMinutes: 15, backfillDays: 0 },
+        download: {
+          enabled: false,
+          stationIds: [],
+          pollIntervalMinutes: 15,
+          backfillDays: 0,
+        },
       },
       mqtt: {
         enabled: false,

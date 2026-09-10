@@ -68,12 +68,14 @@ const (
 	downloadMaxBackoff        = 30 * time.Minute
 	downloadBackoffMultiplier = 2
 
-	// birdweatherSourceNode and birdweatherAudioSourceID identify imported
-	// detections as coming from BirdWeather rather than a local audio device.
-	birdweatherSourceNode    = "birdweather"
-	birdweatherAudioSourceID = "birdweather"
-	birdweatherDisplayName   = "BirdWeather"
-	birdweatherModelName     = "birdweather-import"
+	// birdweatherSourceNode identifies imported detections as coming from
+	// BirdWeather rather than a local audio device. birdweatherAudioSourceIDPrefix
+	// and birdweatherDisplayNamePrefix are combined with a station ID so multiple
+	// configured stations show up as distinct, filterable sources.
+	birdweatherSourceNode          = "birdweather"
+	birdweatherAudioSourceIDPrefix = "birdweather:"
+	birdweatherDisplayNamePrefix   = "BirdWeather "
+	birdweatherModelName           = "birdweather-import"
 )
 
 // downloadBackoff tracks consecutive failures and backs off transient errors
@@ -238,10 +240,13 @@ func (s *DownloadService) safePoll(ctx context.Context) {
 	}
 }
 
-// Poll runs a single download cycle: it fetches detections newer than the
-// last recorded import (or the configured backfill window on first run),
-// saves any not already imported, and records them. Safe to call directly for
-// on-demand/testing use in addition to the StartPolling loop.
+// Poll runs a single download cycle across all configured stations: for each
+// station it fetches detections newer than that station's last recorded
+// import (or the configured backfill window on first run), saves any not
+// already imported, and records them. A failure on one station does not stop
+// the others; Poll only returns an error (and backs off) if every configured
+// station failed. Safe to call directly for on-demand/testing use in addition
+// to the StartPolling loop.
 func (s *DownloadService) Poll(ctx context.Context) error {
 	s.fetchMu.Lock()
 	defer s.fetchMu.Unlock()
@@ -252,33 +257,52 @@ func (s *DownloadService) Poll(ctx context.Context) error {
 
 	settings := conf.CurrentOrFallback(s.settings)
 	bw := &settings.Realtime.Birdweather
-	if !bw.Download.Enabled {
+	if !bw.Download.Enabled || len(bw.Download.StationIDs) == 0 {
 		return nil
 	}
-	if bw.ID == "" {
-		return errors.Newf("birdweather station ID is not configured").
-			Component("birdweather").
-			Category(errors.CategoryConfiguration).
-			Build()
-	}
 
-	since, err := s.syncWindowStart(bw)
-	if err != nil {
-		s.recordFailure(err)
-		return err
-	}
+	log := GetLogger()
 	until := time.Now().UTC()
 
-	imported, err := s.syncDetections(ctx, bw, since, until)
-	if err != nil {
-		s.recordFailure(err)
-		return err
+	var (
+		totalImported int
+		failures      int
+		lastErr       error
+	)
+
+	for _, stationID := range bw.Download.StationIDs {
+		imported, err := s.pollStation(ctx, bw, stationID, until)
+		if err != nil {
+			failures++
+			lastErr = err
+			log.Warn("BirdWeather detection download failed for station",
+				logger.String("station_id", stationID),
+				logger.Error(err))
+			continue
+		}
+		totalImported += imported
+	}
+
+	if failures > 0 && failures == len(bw.Download.StationIDs) {
+		s.recordFailure(lastErr)
+		return lastErr
 	}
 
 	s.backoff.reset()
-	GetLogger().Info("BirdWeather detection download cycle complete",
-		logger.Int("imported", imported))
+	log.Info("BirdWeather detection download cycle complete",
+		logger.Int("imported", totalImported),
+		logger.Int("stations", len(bw.Download.StationIDs)),
+		logger.Int("failed_stations", failures))
 	return nil
+}
+
+// pollStation runs a single download cycle for one station.
+func (s *DownloadService) pollStation(ctx context.Context, bw *conf.BirdweatherSettings, stationID string, until time.Time) (int, error) {
+	since, err := s.syncWindowStart(bw, stationID)
+	if err != nil {
+		return 0, err
+	}
+	return s.syncDetections(ctx, bw, stationID, since, until)
 }
 
 // recordFailure records a poll cycle failure and logs the resulting backoff.
@@ -290,12 +314,13 @@ func (s *DownloadService) recordFailure(err error) {
 		logger.Int("consecutive_failures", failures))
 }
 
-// syncWindowStart determines the start of the period to fetch: the last
-// recorded import time, or now minus the configured backfill window on first
-// run (calendar-day arithmetic, DST-safe). A zero/disabled backfill window on
-// first run starts from now, so nothing is backfilled.
-func (s *DownloadService) syncWindowStart(bw *conf.BirdweatherSettings) (time.Time, error) {
-	last, err := s.imports.lastImportedAt()
+// syncWindowStart determines the start of the period to fetch for stationID:
+// that station's last recorded import time, or now minus the configured
+// backfill window on first run (calendar-day arithmetic, DST-safe). A
+// zero/disabled backfill window on first run starts from now, so nothing is
+// backfilled.
+func (s *DownloadService) syncWindowStart(bw *conf.BirdweatherSettings, stationID string) (time.Time, error) {
+	last, err := s.imports.lastImportedAt(stationID)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -309,17 +334,17 @@ func (s *DownloadService) syncWindowStart(bw *conf.BirdweatherSettings) (time.Ti
 	return now.AddDate(0, 0, -bw.Download.BackfillDays), nil
 }
 
-// syncDetections fetches and imports detections in [since, until], paginating
-// until BirdWeather reports no next page or downloadMaxPagesPerCycle is
-// reached. Returns the number of detections newly imported.
-func (s *DownloadService) syncDetections(ctx context.Context, bw *conf.BirdweatherSettings, since, until time.Time) (int, error) {
+// syncDetections fetches and imports stationID's detections in [since, until],
+// paginating until BirdWeather reports no next page or downloadMaxPagesPerCycle
+// is reached. Returns the number of detections newly imported.
+func (s *DownloadService) syncDetections(ctx context.Context, bw *conf.BirdweatherSettings, stationID string, since, until time.Time) (int, error) {
 	var (
 		after    string
 		imported int
 	)
 
 	for range downloadMaxPagesPerCycle {
-		result, err := s.client.FetchStationDetections(ctx, bw.ID, since, until, after)
+		result, err := s.client.FetchStationDetections(ctx, stationID, since, until, after)
 		if err != nil {
 			return imported, err
 		}
@@ -337,8 +362,9 @@ func (s *DownloadService) syncDetections(ctx context.Context, bw *conf.Birdweath
 				continue
 			}
 
-			if err := s.importDetection(ctx, bw, &det); err != nil {
+			if err := s.importDetection(ctx, bw, stationID, &det); err != nil {
 				GetLogger().Warn("Failed to import BirdWeather detection",
+					logger.String("station_id", stationID),
 					logger.String("detection_id", det.ID),
 					logger.Error(err))
 				continue
@@ -356,15 +382,16 @@ func (s *DownloadService) syncDetections(ctx context.Context, bw *conf.Birdweath
 }
 
 // importDetection saves a single downloaded detection through the shared
-// detection repository and records it in the bookkeeping table.
-func (s *DownloadService) importDetection(ctx context.Context, bw *conf.BirdweatherSettings, det *StationDetection) error {
+// detection repository and records it in the bookkeeping table, tagged with a
+// per-station source identity so multiple stations remain distinguishable.
+func (s *DownloadService) importDetection(ctx context.Context, bw *conf.BirdweatherSettings, stationID string, det *StationDetection) error {
 	result := &detection.Result{
 		Timestamp:  det.Timestamp,
 		SourceNode: birdweatherSourceNode,
 		AudioSource: detection.AudioSource{
-			ID:          birdweatherAudioSourceID,
+			ID:          birdweatherAudioSourceIDPrefix + stationID,
 			Type:        string(entities.SourceTypeBirdWeather),
-			DisplayName: birdweatherDisplayName,
+			DisplayName: birdweatherDisplayNamePrefix + "(" + stationID + ")",
 		},
 		BeginTime: det.Timestamp,
 		EndTime:   det.Timestamp.Add(detectionDurationSeconds * time.Second),
@@ -383,5 +410,5 @@ func (s *DownloadService) importDetection(ctx context.Context, bw *conf.Birdweat
 		return err
 	}
 
-	return s.imports.record(det.ID, result.ID, det.Timestamp)
+	return s.imports.record(stationID, det.ID, result.ID, det.Timestamp)
 }

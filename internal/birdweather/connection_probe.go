@@ -125,8 +125,12 @@ func maskURLForLogging(urlStr, birdweatherID string) string {
 	return strings.ReplaceAll(urlStr, birdweatherID, "***")
 }
 
-// checkRateLimit returns error if tests are being run too frequently
-func checkRateLimit() error {
+// checkRateLimit returns an error if tests are being run too frequently. On
+// failure it also returns the Unix timestamp of when testing is allowed again,
+// for RateLimitExpiry; the error text is a stable sentinel ('rate limit
+// exceeded') rather than a user-facing message, since the frontend renders a
+// localized message for this specific failure instead of displaying it raw.
+func checkRateLimit() (expiryUnix int64, err error) {
 	rateLimiterMu.Lock()
 	defer rateLimiterMu.Unlock()
 
@@ -134,14 +138,12 @@ func checkRateLimit() error {
 	if lastTestTime.IsZero() || time.Since(lastTestTime) >= minTestInterval {
 		// Update the last test time and allow this test
 		lastTestTime = time.Now()
-		return nil
+		return 0, nil
 	}
 
 	// Calculate time until next allowed test
 	nextAllowedTime := lastTestTime.Add(minTestInterval)
-	expiryTime := nextAllowedTime.Unix()
-
-	return fmt.Errorf("rate limit exceeded: please wait before testing again|%d", expiryTime)
+	return nextAllowedTime.Unix(), fmt.Errorf("rate limit exceeded")
 }
 
 // tryFallbackResolver attempts DNS resolution using a single fallback resolver.
@@ -447,7 +449,7 @@ func runTest(ctx context.Context, stage TestStage, test birdweatherTest) TestRes
 	case DetectionPost:
 		message = "Successfully posted test detection to BirdWeather: Whooper Swan (Cygnus cygnus) with unlikely confidence."
 	case StationReadAccess:
-		message = "Successfully verified read access to your BirdWeather station for detection downloads."
+		message = "Successfully verified read access to your configured BirdWeather station(s) for detection downloads."
 	default:
 		message = fmt.Sprintf("Successfully completed %s", stage)
 	}
@@ -870,17 +872,33 @@ func (b *BwClient) testDetectionPost(ctx context.Context, soundscapeID string) T
 	})
 }
 
-// testStationReadAccess verifies that the configured station ID resolves via
-// BirdWeather's public GraphQL read API, used by the detection download
-// feature. This is independent of the REST upload API tested by the stages
-// above, so a passing upload test does not guarantee this one also passes.
+// testStationReadAccess verifies that every configured download station ID
+// resolves via BirdWeather's public GraphQL read API, used by the detection
+// download feature. This is independent of the REST upload API tested by the
+// stages above, so a passing upload test does not guarantee this one also
+// passes (and vice versa).
 func (b *BwClient) testStationReadAccess(ctx context.Context) TestResult {
 	readCtx, readCancel := context.WithTimeout(ctx, stationReadTimeout)
 	defer readCancel()
 
+	stationIDs := b.Settings.Realtime.Birdweather.Download.StationIDs
+
 	return runTest(readCtx, StationReadAccess, func(ctx context.Context) error {
-		_, err := NewGraphQLClient().VerifyStation(ctx, b.BirdweatherID)
-		return err
+		if len(stationIDs) == 0 {
+			return fmt.Errorf("no download station IDs configured")
+		}
+
+		client := NewGraphQLClient()
+		var failed []string
+		for _, id := range stationIDs {
+			if _, err := client.VerifyStation(ctx, id); err != nil {
+				failed = append(failed, id)
+			}
+		}
+		if len(failed) > 0 {
+			return fmt.Errorf("failed to verify %d of %d station(s): %s", len(failed), len(stationIDs), strings.Join(failed, ", "))
+		}
+		return nil
 	})
 }
 
@@ -1007,53 +1025,72 @@ func (b *BwClient) TestConnection(ctx context.Context, resultChan chan<- TestRes
 	})
 
 	// Check rate limiting
-	if err := checkRateLimit(); err != nil {
+	if expiry, err := checkRateLimit(); err != nil {
+		sender.send(&TestResult{
+			Success:         false,
+			Stage:           "Starting Test",
+			Message:         "Rate limit check failed",
+			Error:           err.Error(),
+			State:           "failed",
+			RateLimitExpiry: expiry,
+		})
+		return
+	}
+
+	uploadEnabled := b.Settings != nil && b.Settings.Realtime.Birdweather.Enabled
+	downloadEnabled := shouldTestStationReadAccess(b.Settings)
+
+	if !uploadEnabled && !downloadEnabled {
 		sender.send(&TestResult{
 			Success: false,
 			Stage:   "Starting Test",
-			Message: "Rate limit check failed",
-			Error:   err.Error(),
+			Message: "Neither BirdWeather uploads nor detection downloads are enabled",
 			State:   "failed",
 		})
 		return
 	}
 
-	// Stage 1: API Connectivity
-	if !sender.runStage(APIConnectivity, func() TestResult {
-		return b.testAPIConnectivity(ctx)
-	}) {
-		return
-	}
-
-	// Stage 2: Authentication
-	if !sender.runStage(Authentication, func() TestResult {
-		return b.testAuthentication(ctx)
-	}) {
-		return
-	}
-
-	// Stage 3: Soundscape Upload
-	var soundscapeID string
-	uploadResult := sender.runStage(SoundscapeUpload, func() TestResult {
-		result := b.testSoundscapeUpload(ctx)
-		if result.Success {
-			soundscapeID = result.ResultID
+	// Stages 1-4 test the REST upload API and only apply when uploads are
+	// enabled; a user testing download-only skips straight to Stage 5.
+	if uploadEnabled {
+		// Stage 1: API Connectivity
+		if !sender.runStage(APIConnectivity, func() TestResult {
+			return b.testAPIConnectivity(ctx)
+		}) {
+			return
 		}
-		return result
-	})
 
-	if !uploadResult || soundscapeID == "" {
-		soundscapeID = "test123"
+		// Stage 2: Authentication
+		if !sender.runStage(Authentication, func() TestResult {
+			return b.testAuthentication(ctx)
+		}) {
+			return
+		}
+
+		// Stage 3: Soundscape Upload
+		var soundscapeID string
+		uploadResult := sender.runStage(SoundscapeUpload, func() TestResult {
+			result := b.testSoundscapeUpload(ctx)
+			if result.Success {
+				soundscapeID = result.ResultID
+			}
+			return result
+		})
+
+		if !uploadResult || soundscapeID == "" {
+			soundscapeID = "test123"
+		}
+
+		// Stage 4: Detection Post
+		sender.runStage(DetectionPost, func() TestResult {
+			return b.testDetectionPost(ctx, soundscapeID)
+		})
 	}
-
-	// Stage 4: Detection Post
-	sender.runStage(DetectionPost, func() TestResult {
-		return b.testDetectionPost(ctx, soundscapeID)
-	})
 
 	// Stage 5: Station Read Access (only when detection download is enabled;
-	// it exercises the GraphQL read API, not the REST upload API above).
-	if shouldTestStationReadAccess(b.Settings) {
+	// it exercises the GraphQL read API for each configured download station,
+	// independently of the REST upload API stages above).
+	if downloadEnabled {
 		sender.runStage(StationReadAccess, func() TestResult {
 			return b.testStationReadAccess(ctx)
 		})
