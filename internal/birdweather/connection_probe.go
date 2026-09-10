@@ -881,7 +881,10 @@ func (b *BwClient) testStationReadAccess(ctx context.Context) TestResult {
 	readCtx, readCancel := context.WithTimeout(ctx, stationReadTimeout)
 	defer readCancel()
 
-	stationIDs := b.Settings.Realtime.Birdweather.Download.StationIDs
+	var stationIDs []string
+	if b.Settings != nil {
+		stationIDs = b.Settings.Realtime.Birdweather.Download.StationIDs
+	}
 
 	return runTest(readCtx, StationReadAccess, func(ctx context.Context) error {
 		if len(stationIDs) == 0 {

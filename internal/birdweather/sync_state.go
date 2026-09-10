@@ -74,6 +74,29 @@ func (s *importStore) alreadyImported(externalID string) (bool, error) {
 	return count > 0, err
 }
 
+// alreadyImportedSet returns the subset of externalIDs already recorded, in a
+// single query instead of one round-trip per ID (used when checking a whole
+// page of detections at once).
+func (s *importStore) alreadyImportedSet(externalIDs []string) (map[string]struct{}, error) {
+	if len(externalIDs) == 0 {
+		return map[string]struct{}{}, nil
+	}
+	var rows []BirdweatherImport
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		return tx.Select("external_detection_id").
+			Where("external_detection_id IN ?", externalIDs).
+			Find(&rows).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		set[row.ExternalDetectionID] = struct{}{}
+	}
+	return set, nil
+}
+
 // record inserts a tracking row for a newly imported detection. A duplicate
 // externalID fails the unique index; the caller should treat that as
 // already-imported (e.g. a racing cycle) rather than a hard error.

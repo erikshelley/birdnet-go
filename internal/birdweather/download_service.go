@@ -349,16 +349,27 @@ func (s *DownloadService) syncDetections(ctx context.Context, bw *conf.Birdweath
 			return imported, err
 		}
 
+		// Filter by confidence first so the dedup query only covers detections
+		// that are actually candidates for import, then batch the "already
+		// imported?" check into a single query for the whole page instead of
+		// one round-trip per detection.
+		candidates := make([]StationDetection, 0, len(result.Detections))
+		candidateIDs := make([]string, 0, len(result.Detections))
 		for _, det := range result.Detections {
 			if det.Confidence < bw.Threshold {
 				continue
 			}
+			candidates = append(candidates, det)
+			candidateIDs = append(candidateIDs, det.ID)
+		}
 
-			already, err := s.imports.alreadyImported(det.ID)
-			if err != nil {
-				return imported, err
-			}
-			if already {
+		imports, err := s.imports.alreadyImportedSet(candidateIDs)
+		if err != nil {
+			return imported, err
+		}
+
+		for _, det := range candidates {
+			if _, already := imports[det.ID]; already {
 				continue
 			}
 
@@ -410,5 +421,21 @@ func (s *DownloadService) importDetection(ctx context.Context, bw *conf.Birdweat
 		return err
 	}
 
-	return s.imports.record(stationID, det.ID, result.ID, det.Timestamp)
+	// The Note save and the bookkeeping insert are not in a single transaction
+	// (they go through two different repositories: the shared detection
+	// repository and this package's own datastore.Interface.Transaction). If
+	// the detection was saved but this record fails, the next poll cycle will
+	// not find it in birdweather_imports and will re-import it as a duplicate
+	// Note. That is an accepted tradeoff of reusing the shared Save() path
+	// rather than adding cross-repository transaction support; log at Error
+	// (not Warn) so a duplicate is diagnosable instead of silently recurring.
+	if err := s.imports.record(stationID, det.ID, result.ID, det.Timestamp); err != nil {
+		GetLogger().Error("BirdWeather detection saved but bookkeeping record failed; it may be re-imported as a duplicate on the next cycle",
+			logger.String("station_id", stationID),
+			logger.String("detection_id", det.ID),
+			logger.Any("note_id", result.ID),
+			logger.Error(err))
+		return err
+	}
+	return nil
 }

@@ -59,6 +59,7 @@
   import { hasSettingsChanged } from '$lib/utils/settingsChanges';
   import { buildAppUrl } from '$lib/utils/urlHelpers';
   import { Activity, Binoculars, Bird, Info, Radio, Send, Trash2, Upload } from '@lucide/svelte';
+  import { isBirdweatherTestable, parseStationIdsInput } from './birdweatherSettings';
 
   const logger = loggers.settings;
 
@@ -146,12 +147,9 @@
   // BirdWeather uploads and detection downloads are independent features that
   // can be tested together or separately: the test button is enabled as soon
   // as either is configured enough to attempt.
-  let birdweatherTestable = $derived.by(() => {
-    const bw = store.formData?.realtime?.birdweather ?? settings.birdweather;
-    const uploadReady = Boolean(bw?.enabled && bw?.id);
-    const downloadReady = Boolean(bw?.download?.enabled && bw?.download?.stationIds?.length);
-    return uploadReady || downloadReady;
-  });
+  let birdweatherTestable = $derived(
+    isBirdweatherTestable(store.formData?.realtime?.birdweather ?? settings.birdweather)
+  );
 
   let mqttHasChanges = $derived(
     hasSettingsChanged(
@@ -361,10 +359,7 @@
   }
 
   function updateBirdWeatherDownloadStationIds(value: string) {
-    const stationIds = value
-      .split(',')
-      .map(entry => entry.trim())
-      .filter(Boolean);
+    const stationIds = parseStationIdsInput(value);
     settingsActions.updateSection('realtime', {
       birdweather: {
         ...settings.birdweather!,

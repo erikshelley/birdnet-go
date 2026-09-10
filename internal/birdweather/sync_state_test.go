@@ -83,6 +83,34 @@ func TestImportStore_LastImportedAt_IsScopedPerStation(t *testing.T) {
 	require.WithinDuration(t, stationBImported, lastB, time.Second)
 }
 
+func TestImportStore_AlreadyImportedSet_ReturnsOnlyKnownIDs(t *testing.T) {
+	t.Parallel()
+	store := newTestImportStore(t)
+
+	now := time.Now().UTC()
+	require.NoError(t, store.record("station-1", "known-1", 1, now))
+	require.NoError(t, store.record("station-1", "known-2", 2, now))
+
+	set, err := store.alreadyImportedSet([]string{"known-1", "known-2", "unknown-3"})
+	require.NoError(t, err)
+	require.Len(t, set, 2)
+	_, ok := set["known-1"]
+	require.True(t, ok)
+	_, ok = set["known-2"]
+	require.True(t, ok)
+	_, ok = set["unknown-3"]
+	require.False(t, ok)
+}
+
+func TestImportStore_AlreadyImportedSet_EmptyInputReturnsEmpty(t *testing.T) {
+	t.Parallel()
+	store := newTestImportStore(t)
+
+	set, err := store.alreadyImportedSet(nil)
+	require.NoError(t, err)
+	require.Empty(t, set)
+}
+
 func TestImportStore_Record_DuplicateExternalIDFails(t *testing.T) {
 	t.Parallel()
 	store := newTestImportStore(t)
